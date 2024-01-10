@@ -1,4 +1,3 @@
-// import functionalities
 import './App.css';
 import {
   Connection,
@@ -17,8 +16,6 @@ import './App.css'
 import * as buffer from "buffer";
 window.Buffer = buffer.Buffer;
 
-
-// create types
 type DisplayEncoding = "utf8" | "hex";
 
 type PhantomEvent = "disconnect" | "connect" | "accountChanged";
@@ -33,7 +30,6 @@ interface ConnectOpts {
   onlyIfTrusted: boolean;
 }
 
-// create a provider interface (hint: think of this as an object) to store the Phantom Provider
 interface PhantomProvider {
   publicKey: PublicKey | null;
   isConnected: boolean | null;
@@ -61,32 +57,28 @@ const getProvider = (): PhantomProvider | undefined => {
 };
 
 export default function App() {
-  // create state variable for the provider
   const [provider, setProvider] = useState<PhantomProvider | undefined>(
     undefined
   );
 
-  // create state variable for the phantom wallet key
   const [receiverPublicKey, setReceiverPublicKey] = useState<PublicKey | undefined>(
     undefined
   );
 
-  // create state variable for the sender wallet key
   const [senderKeypair, setSenderKeypair] = useState<Keypair | undefined>(
     undefined
   );
 
-  // create a state variable for our connection
-  const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
+  const [balance, setBalance] = useState<number | undefined>(undefined);
+
+  // const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
   
   // connection to use with local solana test validator
-  // const connection = new Connection("http://127.0.0.1:8899", "confirmed");
+  const connection = new Connection("http://127.0.0.1:8899", "confirmed");
 
-  // this is the function that runs whenever the component updates (e.g. render, refresh)
   useEffect(() => {
     const provider = getProvider();
 
-    // if the phantom provider exists, set this as the provider
     if (provider) setProvider(provider);
     else setProvider(undefined);
   }, []);
@@ -96,23 +88,27 @@ export default function App() {
    * This function is called when the Create a New Solana Account button is clicked
    */
   const createSender = async () => {
-    // create a new Keypair
+    const keypair = Keypair.generate();
+    setSenderKeypair(keypair);
 
+    const airdropSignature = await connection.requestAirdrop(
+      keypair.publicKey,
+      2 * LAMPORTS_PER_SOL
+    );
 
-    console.log('Sender account: ', senderKeypair!.publicKey.toString());
-    console.log('Airdropping 2 SOL to Sender Wallet');
-
-    // save this new KeyPair into this state variable
-    setSenderKeypair(/*KeyPair here*/);
-
-    // request airdrop into this new account
-    
-
-    const latestBlockHash = await connection.getLatestBlockhash();
-
-    // now confirm the transaction
-
-    console.log('Wallet Balance: ' + (await connection.getBalance(senderKeypair!.publicKey)) / LAMPORTS_PER_SOL);
+    try {
+      await connection.confirmTransaction(airdropSignature);
+    } catch (err) {
+      console.error("Something went wrong: ", err);
+      return;
+    }
+  
+    try {
+      const confirmedBalance = await connection.getBalance(keypair!.publicKey) / LAMPORTS_PER_SOL;
+      setBalance(confirmedBalance);
+    } catch (err) {
+      console.error("Something went wrong: ", err)
+    }
   }
 
   /**
@@ -123,15 +119,12 @@ export default function App() {
     // @ts-ignore
     const { solana } = window;
 
-    // checks if phantom wallet exists
     if (solana) {
       try {
-        // connect to phantom wallet and return response which includes the wallet public key
-
-        // save the public key of the phantom wallet to the state variable
-        setReceiverPublicKey(/*PUBLIC KEY*/);
+        const wallet = await solana.connect();
+        setReceiverPublicKey(wallet.publicKey.toString());
       } catch (err) {
-        console.log(err);
+        console.error(err);
       }
     }
   };
@@ -143,15 +136,13 @@ export default function App() {
   const disconnectWallet = async () => {
     // @ts-ignore
     const { solana } = window;
-
-    // checks if phantom wallet exists
     if (solana) {
       try {
         solana.disconnect();
         setReceiverPublicKey(undefined);
         console.log("wallet disconnected")
       } catch (err) {
-        console.log(err);
+        console.error(err);
       }
     }
   };
@@ -160,22 +151,32 @@ export default function App() {
    * @description transfer SOL from sender wallet to connected wallet.
    * This function is called when the Transfer SOL to Phantom Wallet button is clicked
    */
-  const transferSol = async () => {    
-    
-    // create a new transaction for the transfer
+  const transferSol = async () => {
+    const transferTransaction = new Transaction().add(
+      SystemProgram.transfer({
+        fromPubkey: senderKeypair!.publicKey,
+        toPubkey: receiverPublicKey!,
+        lamports: LAMPORTS_PER_SOL 
+      })
+    );
 
-    // send and confirm the transaction
-
-    console.log("transaction sent and confirmed");
-    console.log("Sender Balance: " + await connection.getBalance(senderKeypair!.publicKey) / LAMPORTS_PER_SOL);
-    console.log("Receiver Balance: " + await connection.getBalance(receiverPublicKey!) / LAMPORTS_PER_SOL);
+    try {
+      await sendAndConfirmTransaction(connection, transferTransaction, [senderKeypair!]);
+      const senderBalance = await connection.getBalance(senderKeypair!.publicKey) / LAMPORTS_PER_SOL;
+      setBalance(senderBalance)
+    } catch (err) {
+      console.error("Something went wrong: ", err)
+    }
   };
 
-  // HTML code for the app
   return (
     <div className="App">
       <header className="App-header">
         <h2>Module 2 Assessment</h2>
+        {senderKeypair && <pre style={{fontSize: 14}}>
+          Publickey: {senderKeypair.publicKey.toString()}{"\n"}
+          Balance: {balance}
+        </pre>}
         <span className ="buttons">
           <button
             style={{
